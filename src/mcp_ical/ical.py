@@ -13,6 +13,7 @@ from EventKit import (
     EKSpanThisEvent,  # type: ignore
 )
 from loguru import logger
+from Foundation import NSDate
 
 from .models import (
     CreateEventRequest,
@@ -71,7 +72,18 @@ class CalendarManager:
             f"Listing events between {start_time} - {end_time}, searching in: {calendar_name if calendar_name else 'all calendars'}"
         )
 
-        predicate = self.event_store.predicateForEventsWithStartDate_endDate_calendars_(start_time, end_time, calendars)
+        # Convert Python datetimes to NSDate to avoid passing Python tzinfo objects
+        # directly into Objective-C (which can trigger -conformsToProtocol: errors).
+        def _to_nsdate(dt: datetime) -> NSDate:
+            if isinstance(dt, datetime):
+                # datetime.timestamp() handles tz-aware datetimes correctly
+                return NSDate.dateWithTimeIntervalSince1970_(dt.timestamp())
+            return dt
+
+        ns_start = _to_nsdate(start_time)
+        ns_end = _to_nsdate(end_time)
+
+        predicate = self.event_store.predicateForEventsWithStartDate_endDate_calendars_(ns_start, ns_end, calendars)
 
         events = self.event_store.eventsMatchingPredicate_(predicate)
         return [Event.from_ekevent(event) for event in events]
@@ -88,8 +100,9 @@ class CalendarManager:
         ekevent = EKEvent.eventWithEventStore_(self.event_store)
 
         ekevent.setTitle_(new_event.title)
-        ekevent.setStartDate_(new_event.start_time)
-        ekevent.setEndDate_(new_event.end_time)
+        # Ensure we pass NSDate objects to EventKit
+        ekevent.setStartDate_(NSDate.dateWithTimeIntervalSince1970_(new_event.start_time.timestamp()))
+        ekevent.setEndDate_(NSDate.dateWithTimeIntervalSince1970_(new_event.end_time.timestamp()))
 
         if new_event.notes:
             ekevent.setNotes_(new_event.notes)
@@ -157,9 +170,9 @@ class CalendarManager:
         if request.title is not None:
             existing_ek_event.setTitle_(request.title)
         if request.start_time is not None:
-            existing_ek_event.setStartDate_(request.start_time)
+            existing_ek_event.setStartDate_(NSDate.dateWithTimeIntervalSince1970_(request.start_time.timestamp()))
         if request.end_time is not None:
-            existing_ek_event.setEndDate_(request.end_time)
+            existing_ek_event.setEndDate_(NSDate.dateWithTimeIntervalSince1970_(request.end_time.timestamp()))
         if request.location is not None:
             existing_ek_event.setLocation_(request.location)
         if request.notes is not None:

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from enum import IntEnum
 from typing import Annotated, Self
 
@@ -10,6 +10,7 @@ from EventKit import (
     EKRecurrenceRule,  # type: ignore[import-untyped]
 )
 from pydantic import BaseModel, BeforeValidator, Field, model_validator
+from Foundation import NSDate
 
 
 class Frequency(IntEnum):
@@ -44,6 +45,29 @@ def convert_datetime(v):
 
 
 FlexibleDateTime = Annotated[datetime, BeforeValidator(convert_datetime)]
+
+
+def _nsdate_to_datetime(nsdate: NSDate | None, ns_timezone) -> datetime | None:
+    """Convert Foundation.NSDate to a timezone-aware Python datetime.
+
+    If an NSTimeZone is provided, use its offset for the specific date; otherwise
+    convert from UTC to the local system timezone.
+    """
+    if nsdate is None:
+        return None
+
+    ts = nsdate.timeIntervalSince1970()
+
+    try:
+        if ns_timezone:
+            # secondsFromGMTForDate_ gives the offset (in seconds) for that date
+            seconds = ns_timezone.secondsFromGMTForDate_(nsdate)
+            return datetime.fromtimestamp(ts, tz=timezone(timedelta(seconds=seconds)))
+    except Exception:
+        # fallback to UTC-local conversion
+        pass
+
+    return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
 
 
 class RecurrenceRule(BaseModel):
@@ -150,8 +174,8 @@ class Event:
 
         return cls(
             title=ekevent.title(),
-            start_time=ekevent.startDate(),
-            end_time=ekevent.endDate(),
+            start_time=_nsdate_to_datetime(ekevent.startDate(), ekevent.timeZone() if hasattr(ekevent, "timeZone") else None),
+            end_time=_nsdate_to_datetime(ekevent.endDate(), ekevent.timeZone() if hasattr(ekevent, "timeZone") else None),
             calendar_name=ekevent.calendar().title(),
             location=ekevent.location(),
             notes=ekevent.notes(),
@@ -163,7 +187,7 @@ class Event:
             status=ekevent.status(),
             organizer=str(ekevent.organizer().name()) if ekevent.organizer() else None,
             attendees=attendees,
-            last_modified=ekevent.lastModifiedDate(),
+            last_modified=_nsdate_to_datetime(ekevent.lastModifiedDate(), ekevent.timeZone() if hasattr(ekevent, "timeZone") else None),
             identifier=ekevent.eventIdentifier(),
             _raw_event=ekevent,
         )

@@ -197,6 +197,26 @@ async def update_event(event_id: str, update_event_request: UpdateEventRequest) 
         return f"Error updating event: {str(e)}"
 
 
+@mcp.tool()
+async def delete_event(event_id: str) -> str:
+    """Delete a calendar event by its identifier.
+    Before using this tool, make the user confirm they want to delete the event.
+
+    Args:
+        event_id: Unique identifier of the event to delete
+    """
+    try:
+        manager = get_calendar_manager()
+        success = manager.delete_event(event_id)
+        if not success:
+            return f"Failed to delete event. Event with ID {event_id} not found or deletion failed."
+
+        return f"Successfully deleted event: {event_id}"
+
+    except Exception as e:
+        return f"Error deleting event: {str(e)}"
+
+
 def main():
     logger.info("Running mcp-ical server...")
     mcp.run(transport="stdio")
